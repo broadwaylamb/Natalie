@@ -103,26 +103,11 @@ class Storyboard: XMLObject {
             if let viewController = scene.viewController {
                 if let customClass = viewController.customClass {
                     output += "\n"
-                    output += "//MARK: - \(customClass)\n"
-
-                    if let segues = scene.segues?.filter({ return $0.identifier != nil }), segues.count > 0 {
-                        output += "extension \(os.storyboardSegueType) {\n"
-                        output += "    func selection() -> \(customClass).Segue? {\n"
-                        output += "        if let identifier = self.identifier {\n"
-                        output += "            return \(customClass).Segue(rawValue: identifier)\n"
-                        output += "        }\n"
-                        output += "        return nil\n"
-                        output += "    }\n"
-                        output += "}\n"
-                        output += "\n"
-                    }
+                    output += "// MARK: - \(customClass)\n"
 
                     if let storyboardIdentifier = viewController.storyboardIdentifier {
-                        output += "protocol  \(customClass)IdentifiableProtocol: IdentifiableProtocol { }\n"
                         output += "\n"
-                        output += "extension  \(customClass): \(customClass)IdentifiableProtocol { }\n"
-                        output += "\n"
-                        output += "extension IdentifiableProtocol where Self: \(customClass) {\n"
+                        output += "extension \(customClass) : IdentifiableProtocol {\n"
                         if viewController.customModule != nil {
                             output += "    var storyboardIdentifier: String? { return \"\(storyboardIdentifier)\" }\n"
                         } else {
@@ -136,59 +121,98 @@ class Storyboard: XMLObject {
                     if let segues = scene.segues?.filter({ return $0.identifier != nil }), segues.count > 0 {
                         output += "extension \(customClass) { \n"
                         output += "\n"
-                        output += "    enum Segue: String, CustomStringConvertible, SegueProtocol {\n"
+                        output += "    enum SegueIdentifier : String {\n"
+
                         for segue in segues {
-                            if let identifier = segue.identifier
-                            {
+                            if let identifier = segue.identifier {
                                 output += "        case \(SwiftRepresentationForString(string: identifier)) = \"\(identifier)\"\n"
                             }
                         }
-                        output += "\n"
-                        output += "        var kind: SegueKind? {\n"
-                        output += "            switch (self) {\n"
-                        var needDefaultSegue = false
-                        for segue in segues {
-                            if let identifier = segue.identifier {
-                                output += "            case .\(SwiftRepresentationForString(string: identifier)):\n"
-                                output += "                return SegueKind(rawValue: \"\(segue.kind)\")\n"
-                            } else {
-                                needDefaultSegue = true
+
+                        output += "    }\n\n"
+
+                        output += "    func performSegue(withIdentifier identifier: SegueIdentifier, sender: Any? = nil) {\n"
+                        output += "        performSegue(withIdentifier: identifier.rawValue, sender: sender)\n"
+                        output += "    }\n\n"
+
+                        output += "    enum Segue : SegueProtocol {\n"
+
+                        func getGestinationClass(forDestinationElement element: XMLElement) -> String? {
+
+                            if let customClass = element.attributes["customClass"] { return customClass }
+
+                            if let customClass = element.attributes["referencedIdentifier"] { return customClass }
+
+                            if let storyboardName = element.attributes["storyboardName"],
+                                let storyboardFile = storyboardFiles.first(where: { $0.storyboardName == storyboardName }),
+                                let customClass = storyboardFile.storyboard.initialViewControllerClass {
+
+                                return customClass
                             }
+                            
+                            return os.controllerTypeForElementName(name: element.name)
                         }
-                        if needDefaultSegue {
-                            output += "            default:\n"
-                            output += "                assertionFailure(\"Invalid value\")\n"
-                            output += "                return nil\n"
-                        }
-                        output += "            }\n"
-                        output += "        }\n"
-                        output += "\n"
-                        output += "        var destination: \(self.os.storyboardControllerReturnType).Type? {\n"
-                        output += "            switch (self) {\n"
-                        var needDefaultDestination = false
+
                         for segue in segues {
                             if let identifier = segue.identifier, let destination = segue.destination,
-                                let destinationElement = searchById(id: destination)?.element,
-                                let destinationClass = (destinationElement.attributes["customClass"] ?? os.controllerTypeForElementName(name: destinationElement.name))
+                                let destinationElement = searchById(id: destination)?.element
                             {
-                                output += "            case .\(SwiftRepresentationForString(string: identifier)):\n"
-                                output += "                return \(destinationClass).self\n"
-                            } else {
-                                needDefaultDestination = true
+
+                                output += "        case \(SwiftRepresentationForString(string: identifier))"
+
+                                if let destinationClass = getGestinationClass(forDestinationElement: destinationElement) {
+                                    output += "(destination: \(destinationClass))\n"
+                                }
                             }
                         }
-                        if needDefaultDestination {
-                            output += "            default:\n"
-                            output += "                assertionFailure(\"Unknown destination\")\n"
-                            output += "                return nil\n"
+
+                        output += "\n"
+
+                        var identifierProperty = ""
+                        for segue in segues {
+
+                            if let identifier = segue.identifier {
+
+                                identifierProperty += "            case .\(SwiftRepresentationForString(string: identifier)):\n"
+                                identifierProperty += "                return \"\(identifier)\"\n"
+                            }
                         }
+
+                        output += "        var identifier: String? {\n"
+
+                        if !identifierProperty.isEmpty {
+
+                            output += "            switch self {\n"
+
+                            output += identifierProperty
+
+                            output += "            }\n"
+                        } else {
+                            output += "            return nil"
+                        }
+
+                        output += "        }\n\n"
+
+                        output += "        init?(from segue: \(os.storyboardSegueType)) {\n\n"
+                        output += "            switch segue.identifier {\n"
+
+                        for segue in segues {
+
+                            if let identifier = segue.identifier, let destination = segue.destination,
+                               let destinationElement = searchById(id: destination)?.element,
+                               let destinationClass = getGestinationClass(forDestinationElement: destinationElement) {
+
+                                output += "            case .some(\"\(identifier)\"):\n"
+                                output += "                self = .\(SwiftRepresentationForString(string: identifier))(destination: segue.destination as! \(destinationClass))\n"
+                            }
+                        }
+
+                        output += "            default:\n"
+                        output += "                return nil\n"
                         output += "            }\n"
                         output += "        }\n"
-                        output += "\n"
-                        output += "        var identifier: String? { return self.description } \n"
-                        output += "        var description: String { return self.rawValue }\n"
+
                         output += "    }\n"
-                        output += "\n"
                         output += "}\n"
                     }
 
@@ -196,55 +220,28 @@ class Storyboard: XMLObject {
 
                         output += "extension \(customClass) { \n"
                         output += "\n"
-                        output += "    enum Reusable: String, CustomStringConvertible, ReusableViewProtocol {\n"
+                        output += "    struct Reusable {\n"
                         for reusable in reusables {
                             if let identifier = reusable.reuseIdentifier {
-                                output += "        case \(SwiftRepresentationForString(string: identifier, doNotShadow: reusable.customClass)) = \"\(identifier)\"\n"
+
+                                let defaultClass: String
+                                switch reusable.kind {
+                                case "tableViewCell":
+                                    defaultClass = "UITableViewCell"
+                                case "collectionReusableView":
+                                    defaultClass = "UICollectionReusableView"
+                                default:
+                                    defaultClass = "UICollectionViewCell"
+                                }
+
+                                output += "        struct \(SwiftRepresentationForString(string: identifier, capitalizeFirstLetter: true, doNotShadow: reusable.customClass)) : ReusableViewProtocol {\n"
+                                output += "            typealias ViewType = \(reusable.customClass ?? defaultClass)\n"
+                                output += "            static let reuseIdentifier = \"\(identifier)\"\n"
+                                output += "        }\n"
                             }
                         }
-                        output += "\n"
-                        output += "        var kind: ReusableKind? {\n"
-                        output += "            switch (self) {\n"
-                        var needDefault = false
-                        for reusable in reusables {
-                            if let identifier = reusable.reuseIdentifier {
-                                output += "            case .\(SwiftRepresentationForString(string: identifier, doNotShadow: reusable.customClass)):\n"
-                                output += "                return ReusableKind(rawValue: \"\(reusable.kind)\")\n"
-                            } else {
-                                needDefault = true
-                            }
-                        }
-                        if needDefault {
-                            output += "            default:\n"
-                            output += "                preconditionFailure(\"Invalid value\")\n"
-                            output += "                break\n"
-                        }
-                        output += "            }\n"
-                        output += "        }\n"
-                        output += "\n"
-                        output += "        var viewType: \(self.os.viewType).Type? {\n"
-                        output += "            switch (self) {\n"
-                        needDefault = false
-                        for reusable in reusables {
-                            if let identifier = reusable.reuseIdentifier, let customClass = reusable.customClass {
-                                output += "            case .\(SwiftRepresentationForString(string: identifier, doNotShadow: reusable.customClass)):\n"
-                                output += "                return \(customClass).self\n"
-                            } else {
-                                needDefault = true
-                            }
-                        }
-                        if needDefault {
-                            output += "            default:\n"
-                            output += "                return nil\n"
-                        }
-                        output += "            }\n"
-                        output += "        }\n"
-                        output += "\n"
-                        output += "        var storyboardIdentifier: String? { return self.description } \n"
-                        output += "        var description: String { return self.rawValue }\n"
                         output += "    }\n"
-                        output += "\n"
-                        output += "}\n\n"
+                        output += "}\n"
                     }
                 }
             }

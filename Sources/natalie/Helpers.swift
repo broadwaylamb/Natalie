@@ -25,6 +25,8 @@ func SwiftRepresentationForString(string: String, capitalizeFirstLetter: Bool = 
     var str =  string.trimAllWhitespacesAndSpecialCharacters()
     if capitalizeFirstLetter {
         str = String(str.uppercased().unicodeScalars.prefix(1) + str.unicodeScalars.suffix(str.unicodeScalars.count - 1))
+    } else {
+        str = String(str.lowercased().unicodeScalars.prefix(1) + str.unicodeScalars.suffix(str.unicodeScalars.count - 1))
     }
     if str == doNotShadow {
         str = str + "_"
