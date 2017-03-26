@@ -13,14 +13,18 @@ if CommandLine.arguments.count == 1 {
     exit(1)
 }
 
-let argument = CommandLine.arguments[1]
-var filePaths:[String] = []
+var filePaths: [String] = []
 let storyboardSuffix = ".storyboard"
-if argument.hasSuffix(storyboardSuffix) {
-    filePaths = [argument]
-} else if let s = findStoryboards(rootPath: argument, suffix: storyboardSuffix) {
-    filePaths = s
+
+for argument in CommandLine.arguments.dropFirst() {
+
+    if argument.hasSuffix(storyboardSuffix) {
+        filePaths.append(argument)
+    } else if let s = findStoryboards(rootPath: argument, suffix: storyboardSuffix) {
+        filePaths.append(contentsOf: s)
+    }
 }
+
 
 let storyboardFiles = filePaths.flatMap { try? StoryboardFile(filePath: $0) }
 
